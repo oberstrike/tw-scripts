@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Auto Recruiter
-// @version      0.5.4
+// @version      0.1.2
 // @description  Adds buildings to queue automatically
-// @author       FunnyPocketBook
+// @author       oberstrike
 // @match        https://*/game.php?village=*&screen=barrack*
 // @match        https://*/game.php?village=*&screen=stable*
 // @match        https://*/game.php?village=*&screen=garage*
@@ -12,6 +12,10 @@
 // ==/UserScript==
 'use strict';
 
+function getScreenParam(url) {
+    const urlParams = new URLSearchParams(new URL(url).search);
+    return urlParams.get("screen");
+}
 
 function removeExtraSpaces(str) {
     return str.replace(/\s+/g, " ").trim();
@@ -76,6 +80,7 @@ class AutoRecruiter {
         this.intervalHoursInput = document.getElementById("intervalHours");
         this.intervalMinutesInput = document.getElementById("intervalMinutes");
         this.intervalSecondsInput = document.getElementById("intervalSeconds");
+        this.nextDate = document.getElementById("nextDate");
 
         this.trainButton.addEventListener('click', this.startTraining.bind(this));
         this.stopButton.addEventListener('click', this.stopTraining.bind(this));
@@ -93,66 +98,55 @@ class AutoRecruiter {
         this.stopButton.disabled = false;
         this.trainButton.disabled = true;
 
-        const intervalHours = parseInt(this.intervalHoursInput.value);
-        const intervalMinutes = parseInt(this.intervalMinutesInput.value);
-        const intervalSeconds = parseInt(this.intervalSecondsInput.value);
-        const totalMilliseconds = ((intervalHours * 60 * 60) + (intervalMinutes * 60) + intervalSeconds) * 1000;
-
-        console.log("totalMilliseconds: " + totalMilliseconds);
+        const totalMilliseconds = (
+            (parseInt(this.intervalHoursInput.value) * 60 * 60)
+            + (parseInt(this.intervalMinutesInput.value) * 60)
+            + parseInt(this.intervalSecondsInput.value)
+        ) * 1000;
 
         this.running = true;
 
+        const nextTrainTime = new Date(Date.now() + totalMilliseconds);
+        this.nextDate.textContent = `Next train is planned at ${nextTrainTime.toLocaleTimeString()}`;
+
+
         this.intervalId = setInterval(() => {
+
 
             let isOneValueSet = false;
 
-            for (let i = 0; i < this.units.length; i++) {
-                const unit = this.units[i];
-                let unitName = unit.unitName;
+            for (const unit of this.units) {
+                const unitName = unit.unitName;
                 const outputElement = document.getElementById(`${unitName}_0`);
                 const inputElement = document.getElementById(`${unitName}Count`);
                 const totalCount = this.getTotal(unitName) + getUnitsInQueue(unitName);
                 const totalInput = parseInt(document.getElementById(`${unitName}Max`).value);
                 let inputCount = parseInt(inputElement.value);
 
-                console.log(`Total units(${unitName}) - ${totalCount}`);
-                console.log(`Setting for maximum ${unitName} : ${totalInput}`)
+                if (totalInput !== 0 && totalCount + inputCount > totalInput) {
+                    inputCount = totalInput - totalCount;
+                    console.log(`The inputCount was adjusted it is now: ${inputCount}`);
+                }
 
-                if (totalInput !== 0) {
-                    // 5999 + 4 > 6000
-                    if (totalCount + inputCount > totalInput) {
-                        // 1 = 6000 - 5999
-                        inputCount = totalInput - totalCount;
+                if (inputCount > 0) {
+                    const unitPossibleToTrainCount = parseInt(
+                        document.getElementById(`${unitName}_0_a`).textContent.replace(/[()]/g, '')
+                    );
 
-                        console.log('The inputCount was adjusted it is now: ' + inputCount);
+                    if (inputCount > unitPossibleToTrainCount) {
+                        console.error(`Could not train ${unitName} - ${inputCount} is too large max is: ${unitPossibleToTrainCount}`);
+                    } else {
+                        isOneValueSet = true;
+                        outputElement.value = inputCount;
                     }
                 }
-
-
-                if (inputCount <= 0) {
-                    continue;
-                }
-
-
-                const unitPossibleToTrainCount = parseInt(document.getElementById(`${unitName}_0_a`).textContent
-                    .replace('(', '')
-                    .replace(')', ''));
-
-                if (inputCount > unitPossibleToTrainCount) {
-                    console.error(`Could not train ${unitName} - ${inputCount} is too large max is: ${unitPossibleToTrainCount}`);
-                    continue;
-                }
-
-
-                isOneValueSet = true;
-                outputElement.value = inputCount;
             }
 
             if (isOneValueSet) {
-                const recruitButton = document.getElementsByClassName('btn btn-recruit')[0]
-                recruitButton.click()
+                document.getElementsByClassName('btn btn-recruit')[0].click();
             }
-
+            const nextTrainTime = new Date(Date.now() + totalMilliseconds);
+            this.nextDate.textContent = `Next train is planned at ${nextTrainTime.toLocaleTimeString()}`;
         }, totalMilliseconds); // interval set to 1 second
 
     }
@@ -242,15 +236,20 @@ class AutoRecruiter {
       <button id="trainButton">Train</button>
       <button id="stopButton" disabled>Stop</button>
     </td>
-  </tr>`
-
+  </tr>
+  <tr>
+    <td>
+        <span>Next at </span> <span id="nextDate"></span>
+    </td>
+</tr>
+`
 }
+
 
 
 (function () {
     "use strict";
 
     const autoRecruiter = new AutoRecruiter();
-
 
 })();
