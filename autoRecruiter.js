@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Auto Recruiter
-// @version      0.1.2
-// @description  Adds buildings to queue automatically
+// @version      0.1.3
+// @description  Killer
 // @author       oberstrike
 // @match        https://*/game.php?village=*&screen=barrack*
 // @match        https://*/game.php?village=*&screen=stable*
@@ -12,9 +12,45 @@
 // ==/UserScript==
 'use strict';
 
-function getScreenParam(url) {
-    const urlParams = new URLSearchParams(new URL(url).search);
-    return urlParams.get("screen");
+class StateManagement {
+    constructor(villageId, screen) {
+        console.log('initialise State');
+
+        this.villageId = villageId;
+        this.screen = screen;
+        this.load();
+    }
+
+    getState() {
+        return {
+            intervalHoursInput: this.intervalHoursInput,
+            intervalMinutesInput: this.intervalMinutesInput,
+            intervalSecondsInput: this.intervalSecondsInput,
+            units: this.unitObj
+        }
+    }
+
+    load() {
+        const stateKey = `state_${this.villageId}_${this.screen}`;
+        const stateJson = localStorage.getItem(stateKey);
+        if (stateJson) {
+            const stateObj = JSON.parse(stateJson);
+            this.unitObj = stateObj.units;
+            this.intervalHoursInput = stateObj.intervalHours;
+            this.intervalMinutesInput = stateObj.intervalMinutes;
+            this.intervalSecondsInput = stateObj.intervalSeconds;
+        }
+    }
+
+    save(state) {
+        const stateKey = `state_${this.villageId}_${this.screen}`;
+        localStorage.setItem(stateKey, JSON.stringify(state));
+    }
+
+    clear() {
+        const stateKey = `state_${this.villageId}_${this.screen}`;
+        localStorage.removeItem(stateKey);
+    }
 }
 
 function removeExtraSpaces(str) {
@@ -62,6 +98,7 @@ class Unit {
 class AutoRecruiter {
 
     constructor() {
+        console.log('initialise AutoRecruiter');
         this.units = this.createUnits();
         if (this.units.length > 0) {
             this.guiHtml = this.createGuiHtml();
@@ -72,15 +109,45 @@ class AutoRecruiter {
             this.initHtml();
             this.initListeners();
         }
+        const villageId = new URLSearchParams(window.location.search).get(
+            "village"
+        );
+        this.stateManagement = new StateManagement(villageId, screen);
+        this.initState();
+    }
+
+    initState() {
+        const state = this.stateManagement.getState();
+        this.intervalHoursInput.value = state.intervalHoursInput;
+        this.intervalMinutesInput.value = state.intervalMinutesInput;
+        this.intervalSecondsInput.value = state.intervalSecondsInput;
+
+        const stateUnits = state.units;
+        for(const unit of this.units){
+            const { count, max }= stateUnits[unit.unitName];
+            const countInput = document.querySelector(`#${unit.unitName}Count`);
+            if (!countInput) {
+                continue;
+            }
+            const maxInput = document.querySelector(`#${unit.unitName}Max`);
+            if(!maxInput){
+                continue;
+            }
+
+            countInput.value = count;
+            maxInput.value = max;
+        }
+
     }
 
     initListeners() {
-        this.trainButton = document.getElementById("trainButton");
-        this.stopButton = document.getElementById("stopButton");
-        this.intervalHoursInput = document.getElementById("intervalHours");
-        this.intervalMinutesInput = document.getElementById("intervalMinutes");
-        this.intervalSecondsInput = document.getElementById("intervalSeconds");
-        this.nextDate = document.getElementById("nextDate");
+        this.trainButton = document.querySelector("#trainButton");
+        this.stopButton = document.querySelector("#stopButton");
+        this.intervalHoursInput = document.querySelector("#intervalHours");
+        this.intervalMinutesInput = document.querySelector("#intervalMinutes");
+        this.intervalSecondsInput = document.querySelector("#intervalSeconds");
+        this.nextDate = document.querySelector("#nextDate");
+        this.confirmButton = document.querySelector(".btn.btn-recruit");
 
         this.trainButton.addEventListener('click', this.startTraining.bind(this));
         this.stopButton.addEventListener('click', this.stopTraining.bind(this));
@@ -92,9 +159,37 @@ class AutoRecruiter {
         return parseInt(totalCell.textContent.split("/")[1]);
     }
 
+    save() {
+        console.log("saving the state.")
+        const stateObj = {};
+        for (const unit of this.units) {
+            const countInput = document.querySelector(`#${unit.unitName}Count`);
+            if (!countInput) {
+                continue;
+            }
+            const maxInput = document.querySelector(`#${unit.unitName}Max`);
+            stateObj[unit.unitName] = {
+                count: parseInt(countInput.value),
+                max: parseInt(maxInput.value)
+            };
+        }
+
+        const intervalHoursInput = this.intervalHoursInput;
+        const intervalMinutesInput = this.intervalMinutesInput;
+        const intervalSecondsInput = this.intervalSecondsInput;
+        const state = {
+            intervalHours: parseInt(intervalHoursInput.value),
+            intervalMinutes: parseInt(intervalMinutesInput.value),
+            intervalSeconds: parseInt(intervalSecondsInput.value),
+            units: stateObj
+        };
+        this.stateManagement.save(state);
+    }
 
     startTraining = () => {
         console.log('Start training');
+        this.save();
+
         this.stopButton.disabled = false;
         this.trainButton.disabled = true;
 
@@ -111,8 +206,6 @@ class AutoRecruiter {
 
 
         this.intervalId = setInterval(() => {
-
-
             let isOneValueSet = false;
 
             for (const unit of this.units) {
@@ -143,8 +236,9 @@ class AutoRecruiter {
             }
 
             if (isOneValueSet) {
-                document.getElementsByClassName('btn btn-recruit')[0].click();
+                this.confirmButton.click();
             }
+
             const nextTrainTime = new Date(Date.now() + totalMilliseconds);
             this.nextDate.textContent = `Next train is planned at ${nextTrainTime.toLocaleTimeString()}`;
         }, totalMilliseconds); // interval set to 1 second
@@ -246,9 +340,9 @@ class AutoRecruiter {
 }
 
 
-
 (function () {
     "use strict";
+
 
     const autoRecruiter = new AutoRecruiter();
 
